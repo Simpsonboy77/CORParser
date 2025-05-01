@@ -19,53 +19,70 @@ public class SkillParser {
         List<String[]> parsedSkills = new ArrayList<>();
         parsedSkills.add(new String[]{"Name", "Tier", "Class", "Type", "EXP Cost", "Steam Cost", "Aether Cost", "Prerequisites", "Description"});
 
-        // Detect chapter to determine tier
         String currentTier = null;
-        Pattern chapterPattern = Pattern.compile("(?i)chapter\\s+(1[4-8])");
+        String currentClass = null;
+        String currentType = null;
+
+        Pattern sectionPattern = Pattern.compile("(?i)^(Combat|Guile|Arcane|Divine|Academic|Crafting & Labor|Crafting and Labor)\\s+(Passives|Feats|Talents):\\s*(Novice|Apprentice|Journeyman|Master|Grand Master)?");
+        Pattern skillHeaderPattern = Pattern.compile("^\\s*([\\w'’ \\-/]+):\\s*\\((\\d+)\\s*Exp\\)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+        Pattern costPattern = Pattern.compile("\\((?:To use|Cost):\\s*(\\d+)\\s*(Steam|Aether)\\)", Pattern.CASE_INSENSITIVE);
+        Pattern prereqPattern = Pattern.compile("\\(Pre[-\\s]?req:\\s*(.*?)\\)", Pattern.CASE_INSENSITIVE);
+
         String[] lines = text.split("\\r?\\n");
 
-        // Main skill pattern
-        Pattern skillPattern = Pattern.compile(
-                "^\\s*([\\w'’ \\-/]+):\\s*" +                                      // Skill name
-                        "\\(?\\s*(\\d+)\\s*(?i:Exp|EXP)\\)?\\s*" +                         // EXP cost
-                        "(?:\\(?\\s*(?:To use|Cost)\\s*:\\s*(\\d+)\\s*(Steam|Aether|steam|aether)\\s*\\)?)?\\s*" + // Optional use cost
-                        "(?:\\(?Pre-req\\s*:?\\s*(.*?)\\)?)?\\s*" +                        // Optional prereq
-                        "(.*?)$",                                                         // Description
-                Pattern.CASE_INSENSITIVE
-        );
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
 
-        for (String line : lines) {
-            Matcher chapterMatcher = chapterPattern.matcher(line);
-            if (chapterMatcher.find()) {
-                switch (chapterMatcher.group(1)) {
-                    case "14": currentTier = "Novice"; break;
-                    case "15": currentTier = "Apprentice"; break;
-                    case "16": currentTier = "Journeyman"; break;
-                    case "17": currentTier = "Master"; break;
-                    case "18": currentTier = "Grand Master"; break;
+            // Detect class/type/tier from section headers
+            Matcher sectionMatcher = sectionPattern.matcher(line);
+            if (sectionMatcher.find()) {
+                currentClass = sectionMatcher.group(1);
+                currentType = capitalize(sectionMatcher.group(2));
+                if (sectionMatcher.group(3) != null) {
+                    currentTier = capitalize(sectionMatcher.group(3));
                 }
                 continue;
             }
 
-            Matcher skillMatcher = skillPattern.matcher(line);
+            // Detect skill header
+            Matcher skillMatcher = skillHeaderPattern.matcher(line);
             if (skillMatcher.find()) {
                 String name = skillMatcher.group(1).trim();
-                String expCost = skillMatcher.group(2);
-                String costAmount = skillMatcher.group(3);
-                String costType = skillMatcher.group(4);
-                String prereq = skillMatcher.group(5) != null ? skillMatcher.group(5).trim() : "";
-                String description = skillMatcher.group(6).trim();
+                String expCost = skillMatcher.group(2).trim();
+                String remainder = skillMatcher.group(3).trim();
 
-                String steamCost = "";
-                String aetherCost = "";
-                if ("Steam".equalsIgnoreCase(costType)) {
-                    steamCost = costAmount;
-                } else if ("Aether".equalsIgnoreCase(costType)) {
-                    aetherCost = costAmount;
+                String steamCost = "", aetherCost = "", prereq = "";
+
+                // Match cost and prereq from the full line
+                Matcher costMatch = costPattern.matcher(line);
+                if (costMatch.find()) {
+                    if ("Steam".equalsIgnoreCase(costMatch.group(2))) steamCost = costMatch.group(1);
+                    else if ("Aether".equalsIgnoreCase(costMatch.group(2))) aetherCost = costMatch.group(1);
                 }
 
+                Matcher prereqMatch = prereqPattern.matcher(line);
+                if (prereqMatch.find()) {
+                    prereq = prereqMatch.group(1).trim();
+                }
+
+                // Clean up description
+                String description = line
+                        .replaceFirst(skillHeaderPattern.pattern(), "")
+                        .replaceAll(costPattern.pattern(), "")
+                        .replaceAll(prereqPattern.pattern(), "")
+                        .trim();
+
+                // Accumulate multi-line description
+                int j = i + 1;
+                while (j < lines.length && lines[j].trim().length() > 1) {
+                    description += " " + lines[j].trim();
+                    j++;
+                }
+                i = j;
+
                 parsedSkills.add(new String[]{
-                        name, currentTier, "", "", expCost, steamCost, aetherCost, prereq, description
+                        name, currentTier, currentClass, currentType,
+                        expCost, steamCost, aetherCost, prereq, description.trim()
                 });
             }
         }
@@ -81,7 +98,15 @@ public class SkillParser {
 
     private static String[] escapeForCsv(String[] fields) {
         return Arrays.stream(fields)
-                .map(field -> field.contains(",") ? "\"" + field.replace("\"", "\"\"") + "\"" : field)
+                .map(field -> {
+                    if (field == null) return "";
+                    return field.contains(",") ? "\"" + field.replace("\"", "\"\"") + "\"" : field;
+                })
                 .toArray(String[]::new);
+    }
+
+    private static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
     }
 }
