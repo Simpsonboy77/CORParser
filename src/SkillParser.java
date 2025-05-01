@@ -81,10 +81,10 @@ public class SkillParser {
             if (skillNameMatcher.find()) {
                 String name = skillNameMatcher.group(1).trim();
 
-                String steamCost = "", aetherCost = "", prereq = "", multipurchase = "";
+                String steamCost = "", aetherCost = "", multipurchase = "";
 
                 String expCost = patternMatch(expPattern, line);
-                prereq = patternMatch(prereqPattern, line);
+                String prereq = patternMatch(prereqPattern, line);
 
 
 
