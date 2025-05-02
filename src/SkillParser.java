@@ -7,6 +7,19 @@ import org.apache.pdfbox.Loader;
 
 public class SkillParser {
 
+    enum tierEnum {
+        None,
+        Novice,
+        Apprentice,
+        Journeyman,
+        Master,
+        GrandMaster {
+            public String toString(){
+                return "Grand Master";
+            }
+        }
+    }
+
     public static void main(String[] args) throws IOException {
         String inputPdf = "CoR_Rules_Guide_2025.pdf";
         String outputPath = "CoR_Skills_Parsed.csv";
@@ -22,32 +35,27 @@ public class SkillParser {
         parsedSkills.add(new String[]{"Name", "Tier", "Class", "Type", "EXP Cost", "Steam Cost", "Aether Cost", "Prerequisites", "Multi Purchase", "Description"});
 
         String currentTier = "";
-        String currentClass = null;
-        String currentType = null;
+        String currentClass = "";
+        String currentSubClass = "";
+        String currentType = "";
 
-        enum tierEnum {
-            Novice,
-            Apprentice,
-            Journeyman,
-            Master,
-            GrandMaster {
-                public String toString(){
-                    return "Grand Master";
-                }
-            }
-        }
-
-
+        boolean parseSubClasses = false;
 
         String classRegex = "(Combat|Guile|Arcane|Divine|Academic|Crafting & Labor|Crafting and Labor)";
-        String typeRegex = "(Spells|PaSSives|Feats|Talents|Runes and rituals)";
+
+        //matches Class: subclass into 2 capturing groups, must be done in master and gm only
+        String subclassRegex = classRegex +": "+ "(\\w*)";
+
+        String typeRegex = "(Spells|Passives|Feats|Talents|Runes and rituals)";
         String tierRegex = "(Races|Cultural Powers";
-        for (tierEnum e : tierEnum.values()) {
-            tierRegex += "|" + e.toString();
-        }
+        for (tierEnum e : tierEnum.values()) tierRegex += "|" + e.toString();
         tierRegex += ")";
-        Pattern tierPattern = Pattern.compile("Chapter 1\\d: " + tierRegex,Pattern.CASE_INSENSITIVE);
-        Pattern sectionPattern = Pattern.compile("(?i)^"+ classRegex + "\\s+"+ typeRegex +":\\s*"+tierRegex, Pattern.CASE_INSENSITIVE);
+
+        Pattern tierPattern = Pattern.compile("Chapter 1\\d: " + tierRegex + "\\s?$", Pattern.CASE_INSENSITIVE);
+
+        Pattern sectionPattern = Pattern.compile("^"+ classRegex + "\\s+"+ typeRegex +":\\s*"+tierRegex, Pattern.CASE_INSENSITIVE);
+        Pattern subClassPattern = Pattern.compile(subclassRegex,Pattern.CASE_INSENSITIVE);
+
         //Pattern skillHeaderPattern = Pattern.compile("^(?:\\s|•)*([\\w'’ \\-/]+):\\s*\\((\\d+)\\s*Exp\\)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
         Pattern skillNamePattern = Pattern.compile("•?(.*): \\(", Pattern.CASE_INSENSITIVE);
         Pattern expPattern = Pattern.compile(".*\\((\\d).*xp\\)", Pattern.CASE_INSENSITIVE);
@@ -61,8 +69,18 @@ public class SkillParser {
             String line = lines[i];
 
             String nextTier = SkillParser.patternMatch(tierPattern,line);
-            if (!nextTier.isEmpty())
+            if (!nextTier.isEmpty()){
                 currentTier = nextTier;
+                System.out.println(line);
+                try {
+                    tierEnum e = tierEnum.valueOf(currentTier);
+                    if (e == tierEnum.Master || e == tierEnum.GrandMaster)
+                        parseSubClasses = true;
+                }
+                catch (Exception e) {
+                }
+
+            }
 
             //fast loop
             if (currentTier.isEmpty())
@@ -74,6 +92,14 @@ public class SkillParser {
                 currentClass = sectionMatcher.group(1);
                 currentType = capitalize(sectionMatcher.group(2));
                 continue;
+            }
+            else if(parseSubClasses){
+                //check if we are in master tier or higher
+                Matcher subclassMatcher = subClassPattern.matcher(line);
+                if (subclassMatcher.find()) {
+                    currentClass = subclassMatcher.group(1);
+                    currentSubClass = subclassMatcher.group(2);
+                }
             }
 
             // Detect skill header
@@ -127,7 +153,7 @@ public class SkillParser {
                 i = j;
 
                 parsedSkills.add(new String[]{
-                        name, currentTier, currentClass, currentType,
+                        name, currentTier, currentClass, currentSubClass, currentType,
                         expCost, steamCost, aetherCost, prereq, multipurchase, description.trim()
                 });
             }
