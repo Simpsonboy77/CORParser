@@ -26,14 +26,32 @@ public class SkillParser {
         }
     }
 
-    public String  currentTier = "";
-    public String currentClass = "";
-    public String currentSubClass = "";
+    public String currentTier = "";
+    public String currentArchetype = "";
+    public String currentFocus = "";
     public String currentType = "";
     public String name = "";
     String inputPdf = "CoR Rules Guide 2025 4.6.2025-1.pdf";
     String outputPath = "CoR_Skills_Parsed.csv";
     long startTime = 0;
+
+    String[] lines;
+
+    String expCost, steamCost, aetherCost, prereq, multipurchase, description = "";
+
+    Pattern tierPattern;
+    Pattern sectionPattern;
+    Pattern subClassPattern;
+    //Pattern skillHeaderPattern = Pattern.compile("^(?:\\s|•)*([\\w'’ \\-/]+):\\s*\\((\\d+)\\s*Exp\\)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+    Pattern skillNamePattern;
+    Pattern expPattern;
+    Pattern costPattern;
+    Pattern prereqPattern;
+    Pattern multipurchasePattern;
+    Pattern titlePattern;
+
+    List<String[]> parsedSkills;
+    List<String[]> parsedTitles;
 
     public SkillParser(String inputPdf, String outoutCSV){
         inputPdf = inputPdf;
@@ -44,36 +62,24 @@ public class SkillParser {
     }
 
     void digestPDF(){
+        String text = "";
         try{
             PDDocument document = Loader.loadPDF(new File(inputPdf));
             PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
+            text = stripper.getText(document);
             document.close();
         }
         catch (Exception e) {
             System.err.println("Fix yo paths");
             System.exit(1);
         }
-        String[] lines = text.split("\\r?\\n");
+        lines = text.split("\\r?\\n");
     }
-
-
-    public static void main(String[] args) throws IOException {
-
-
-        SkillParser parser = new SkillParser("CoR Rules Guide 2025 4.6.2025-1.pdf", "CoR_Skills_Parsed.csv");
-
-        parser.digestPDF();
-
-
-        List<String[]> parsedSkills = new ArrayList<>();
-        List<String[]> parsedTitles = new ArrayList<>();
+    void initPatterns()
+    {
+        parsedSkills = new ArrayList<>();
+        parsedTitles = new ArrayList<>();
         parsedSkills.add(new String[]{"Name", "Tier", "Class", "Subclass", "Type", "EXP Cost", "Steam Cost", "Aether Cost", "Prerequisites", "Multi Purchase", "Description"});
-
-
-
-
-        boolean parseSubClasses = false;
 
         String classRegex = "(Combat|Guile|Arcane|Divine|Academic|Crafting & Labor|Crafting and Labor)";
 
@@ -85,19 +91,55 @@ public class SkillParser {
         for (tierEnum e : tierEnum.values()) tierRegex += "|" + e.toString();
         tierRegex = tierRegex + ")";
 
-        Pattern tierPattern = Pattern.compile("Chapter 1\\d: " + tierRegex + "\\s?$", Pattern.CASE_INSENSITIVE);
+         tierPattern = Pattern.compile("Chapter 1\\d: " + tierRegex + "\\s?$", Pattern.CASE_INSENSITIVE);
 
-        Pattern sectionPattern = Pattern.compile("^"+ classRegex + "\\s+"+ typeRegex +":\\s*"+tierRegex, Pattern.CASE_INSENSITIVE);
-        Pattern subClassPattern = Pattern.compile(subclassRegex,Pattern.CASE_INSENSITIVE);
-        //Pattern skillHeaderPattern = Pattern.compile("^(?:\\s|•)*([\\w'’ \\-/]+):\\s*\\((\\d+)\\s*Exp\\)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
-        Pattern skillNamePattern = Pattern.compile("•?(.*): \\(", Pattern.CASE_INSENSITIVE);
-        Pattern expPattern = Pattern.compile(".*\\((\\d).*xp\\)", Pattern.CASE_INSENSITIVE);
-        Pattern costPattern = Pattern.compile("\\((?:To use|Cost):\\s*(\\d+)\\s*(Steam|Aether)\\)", Pattern.CASE_INSENSITIVE);
-        Pattern prereqPattern = Pattern.compile("\\(Pre[-\\s]?req:\\s*(.*?)\\)", Pattern.CASE_INSENSITIVE);
-        Pattern multipurchasePattern = Pattern.compile("\\(Multi[-\\s]?purchase\\)", Pattern.CASE_INSENSITIVE);
-        Pattern titlePattern = Pattern.compile("Title: " + tierRegex + "( \\w*)");
+        sectionPattern = Pattern.compile("^"+ classRegex + "\\s+"+ typeRegex +":\\s*"+tierRegex, Pattern.CASE_INSENSITIVE);
+        subClassPattern = Pattern.compile(subclassRegex,Pattern.CASE_INSENSITIVE);
+        //skillHeaderPattern = Pattern.compile("^(?:\\s|•)*([\\w'’ \\-/]+):\\s*\\((\\d+)\\s*Exp\\)\\s*(.*)$", Pattern.CASE_INSENSITIVE);
+        skillNamePattern = Pattern.compile("•?(.*): \\(", Pattern.CASE_INSENSITIVE);
+        expPattern = Pattern.compile(".*\\((\\d).*xp\\)", Pattern.CASE_INSENSITIVE);
+        costPattern = Pattern.compile("\\((?:To use|Cost):\\s*(\\d+)\\s*(Steam|Aether)\\)", Pattern.CASE_INSENSITIVE);
+        prereqPattern = Pattern.compile("\\(Pre[-\\s]?req:\\s*(.*?)\\)", Pattern.CASE_INSENSITIVE);
+        multipurchasePattern = Pattern.compile("\\(Multi[-\\s]?purchase\\)", Pattern.CASE_INSENSITIVE);
+        titlePattern = Pattern.compile("Title: " + tierRegex + "( \\w*)");
+    }
 
 
+    public static void main(String[] args) throws IOException {
+
+
+        SkillParser parser = new SkillParser("CoR Rules Guide 2025 4.6.2025-1.pdf", "CoR_Skills_Parsed.csv");
+
+        parser.digestPDF();
+
+        parser.initPatterns();
+
+
+        parser.digestLines();
+
+        parser.writeCSV();
+    }
+
+    private void writeCSV() {
+        try {
+            PrintWriter writer = new PrintWriter(new FileWriter(outputPath));
+            for (String[] skill : parsedSkills) {
+                writer.println(String.join(",", escapeForCsv(skill)));
+            }
+        }
+        catch (Exception e) {
+            ;
+        }
+
+
+        System.out.println("Parsing complete. Output saved to: " + outputPath);
+        System.out.println(parsedSkills.size() + " skills parsed");
+        System.out.println("Parser ran in "+ (System.currentTimeMillis() - startTime) + " milliseconds.");
+    }
+
+    private void digestLines() {
+
+        boolean parseSubClasses = false;
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
 
@@ -124,7 +166,7 @@ public class SkillParser {
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
 
-                currentClass = sectionMatcher.group(1);
+                currentArchetype = sectionMatcher.group(1);
                 currentType = capitalize(sectionMatcher.group(2));
                 continue;
             }
@@ -132,8 +174,8 @@ public class SkillParser {
                 //check if we are in master tier or higher
                 Matcher subclassMatcher = subClassPattern.matcher(line);
                 if (subclassMatcher.find()) {
-                    currentClass = subclassMatcher.group(1);
-                    currentSubClass = subclassMatcher.group(2);
+                    currentArchetype = subclassMatcher.group(1);
+                    currentFocus = subclassMatcher.group(2);
                 }
             }
 
@@ -198,24 +240,15 @@ public class SkillParser {
 
 
             }
+            parsedSkills.add(new String[]{
+                    name, currentTier, currentArchetype, currentFocus, currentType,
+                    expCost, steamCost, aetherCost, prereq, multipurchase, description.trim()
+            });
         }
-
-        try (PrintWriter writer = new PrintWriter(new FileWriter(outputPath))) {
-            for (String[] skill : parsedSkills) {
-                writer.println(String.join(",", escapeForCsv(skill)));
-            }
-        }
-
-        System.out.println("Parsing complete. Output saved to: " + outputPath);
-        System.out.println(parsedSkills.size() + " skills parsed");
-        System.out.println("Parser ran in "+ (System.currentTimeMillis() - startTime) + " milliseconds.");
     }
 
-    private static addEntryToCSV(){
-        parsedSkills.add(new String[]{
-                name, currentTier, currentClass, currentSubClass, currentType,
-                expCost, steamCost, aetherCost, prereq, multipurchase, description.trim()
-        });
+    private void addEntryToCSV(){
+
     }
     private static String[] escapeForCsv(String[] fields) {
         return Arrays.stream(fields)
