@@ -36,6 +36,9 @@ public class SkillParser {
     long startTime = 0;
 
     String[] lines;
+    String line;
+
+    int index = 0;
 
     String expCost, steamCost, aetherCost, prereq, multipurchase, description = "";
 
@@ -50,12 +53,16 @@ public class SkillParser {
     Pattern multipurchasePattern;
     Pattern titlePattern;
 
+    Matcher costMatch;
+    Matcher sectionMatcher;
+    Matcher skillNameMatcher;
+
     List<String[]> parsedSkills;
     List<String[]> parsedTitles;
 
-    public SkillParser(String inputPdf, String outoutCSV){
+    public SkillParser(String inputPdf, String outCSV){
         inputPdf = inputPdf;
-        outputPath = outoutCSV;
+        outputPath = outCSV;
         startTime = System.currentTimeMillis();
 
 
@@ -114,10 +121,66 @@ public class SkillParser {
 
         parser.initPatterns();
 
-
         parser.digestLines();
 
         parser.writeCSV();
+    }
+
+    private int parseSkill(int index)
+    {
+        String line = lines[index];
+        name = skillNameMatcher.group(1).trim();
+
+        String steamCost = "", aetherCost = "", multipurchase = "";
+
+        String expCost = patternMatch(expPattern, line);
+        String prereq = patternMatch(prereqPattern, line);
+
+
+
+        // Match cost and prereq from the full line
+        costMatch = costPattern.matcher(line);
+        if (costMatch.find()) {
+            if ("Steam".equalsIgnoreCase(costMatch.group(2))) steamCost = costMatch.group(1);
+            else if ("Aether".equalsIgnoreCase(costMatch.group(2))) aetherCost = costMatch.group(1);
+        }
+
+        Matcher multipurchaseMatch = multipurchasePattern.matcher(line);
+        if (multipurchaseMatch.find()) {
+            multipurchase = "1";
+        }
+
+
+        // Clean up description
+        int lastParen = line.lastIndexOf(')');
+        description = (lastParen >= 0 && lastParen < line.length() - 1)
+                ? line.substring(lastParen + 1).trim()
+                : "";
+
+        // Accumulate multi-line description
+        int j = index + 1;
+        while (j < lines.length && lines[j].trim().length() > 1) {
+            sectionMatcher = sectionPattern.matcher(lines[j].trim());
+            skillNameMatcher = skillNamePattern.matcher(lines[j].trim());
+            if (sectionMatcher.find() || skillNameMatcher.find()){
+                j--;
+                break;
+            }
+            description += " " + lines[j].trim();
+            j++;
+
+            if (lines[j].trim().contains("•")){
+                j--;
+                break;
+            }
+        }
+
+        index = j;
+        parsedSkills.add(new String[]{
+                name, currentTier, currentArchetype, currentFocus, currentType,
+                expCost, steamCost, aetherCost, prereq, multipurchase, description.trim()
+        });
+        return index;
     }
 
     private void writeCSV() {
@@ -137,11 +200,32 @@ public class SkillParser {
         System.out.println("Parser ran in "+ (System.currentTimeMillis() - startTime) + " milliseconds.");
     }
 
+    private String readDescription()
+    {
+        // Accumulate multi-line description
+        int j = index + 1;
+        while (j < lines.length && lines[j].trim().length() > 1) {
+            sectionMatcher = sectionPattern.matcher(lines[j].trim());
+            skillNameMatcher = skillNamePattern.matcher(lines[j].trim());
+            if (sectionMatcher.find() || skillNameMatcher.find()) {
+                j--;
+                break;
+            }
+            description += " " + lines[j].trim();
+            j++;
+
+            if (lines[j].trim().contains("•")) {
+                j--;
+                break;
+            }
+        }
+        return description;
+    }
     private void digestLines() {
 
         boolean parseSubClasses = false;
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
+        for (index = 0; index < lines.length; index++) {
+            String line = lines[index];
 
             String nextTier = SkillParser.patternMatch(tierPattern,line);
             if (!nextTier.isEmpty()){
@@ -163,7 +247,7 @@ public class SkillParser {
                 continue;
 
             // Detect class/type/tier from section headers
-            Matcher sectionMatcher = sectionPattern.matcher(line);
+            sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
 
                 currentArchetype = sectionMatcher.group(1);
@@ -184,69 +268,22 @@ public class SkillParser {
 
             if(titleMatcher.find()){
                 //can double check that tier matches current tier
-
+                index = parseTitle(titleMatcher, sectionMatcher, index);
                 name = titleMatcher.group(2);
             }
 
             // Detect skill header
-            Matcher skillNameMatcher = skillNamePattern.matcher(line);
+            skillNameMatcher = skillNamePattern.matcher(line);
             if (skillNameMatcher.find()) {
-                name = skillNameMatcher.group(1).trim();
-
-                String steamCost = "", aetherCost = "", multipurchase = "";
-
-                String expCost = patternMatch(expPattern, line);
-                String prereq = patternMatch(prereqPattern, line);
-
-
-
-                // Match cost and prereq from the full line
-                Matcher costMatch = costPattern.matcher(line);
-                if (costMatch.find()) {
-                    if ("Steam".equalsIgnoreCase(costMatch.group(2))) steamCost = costMatch.group(1);
-                    else if ("Aether".equalsIgnoreCase(costMatch.group(2))) aetherCost = costMatch.group(1);
-                }
-
-                Matcher multipurchaseMatch = multipurchasePattern.matcher(line);
-                if (multipurchaseMatch.find()) {
-                    multipurchase = "1";
-                }
-
-                // Clean up description
-                int lastParen = line.lastIndexOf(')');
-                String description = (lastParen >= 0 && lastParen < line.length() - 1)
-                        ? line.substring(lastParen + 1).trim()
-                        : "";
-
-                // Accumulate multi-line description
-                int j = i + 1;
-                while (j < lines.length && lines[j].trim().length() > 1) {
-                    sectionMatcher = sectionPattern.matcher(lines[j].trim());
-                    skillNameMatcher = skillNamePattern.matcher(lines[j].trim());
-                    if (sectionMatcher.find() || skillNameMatcher.find()){
-                        j--;
-                        break;
-                    }
-                    description += " " + lines[j].trim();
-                    j++;
-
-                    if (lines[j].trim().contains("•")){
-                        j--;
-                        break;
-                    }
-                }
-
-                i = j;
-
-
+                index = parseSkill(index);
             }
-            parsedSkills.add(new String[]{
-                    name, currentTier, currentArchetype, currentFocus, currentType,
-                    expCost, steamCost, aetherCost, prereq, multipurchase, description.trim()
-            });
         }
     }
 
+    public int parseTitle(Matcher titleMatcher, Matcher sectionMatcher, int i) {
+        name = titleMatcher.group(2);
+        return i;
+    }
     private void addEntryToCSV(){
 
     }
